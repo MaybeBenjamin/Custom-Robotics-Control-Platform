@@ -1,0 +1,81 @@
+/*
+ * Copyright 2016-2025 NXP
+ * All rights reserved.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+/**
+ * @file    LPC55262.c
+ * @brief   Application entry point.
+ */
+#include <stdio.h>
+#include "clock_config.h"
+#include "board.h"
+#include "peripherals.h"
+#include "pin_mux.h"
+#include "clock_config.h"
+#include "fsl_debug_console.h"
+#include "fsl_gpio.h"
+#include "fsl_ctimer.h"
+#include "Funcs/BasicFunctions.h"
+#include "fsl_i2c.h"          // NXP's I2C driver library
+#include "fsl_debug_console.h" // For PRINTF debugging
+#include "fsl_device_registers.h"
+#include "fsl_clock.h"
+#include "fsl_power.h"
+
+
+
+
+/* TODO: insert other include files here. */
+/* TODO: insert other definitions and declarations here. */
+volatile uint32_t g_pwmPeriod = 0U;
+volatile uint32_t g_pulsePeriod = 0U;
+uint32_t g_timerClock;
+
+/*
+ * @brief   Application entry point.
+ */
+
+
+int main(void) {
+    /* Init board hardware. */
+    BOARD_InitBootPins();
+    BOARD_InitBootClocks();
+    BOARD_InitBootPeripherals();
+    ctimer_setup_t my_timer = setup_timer (2,1);
+
+    /* Initialize MRT */
+
+#ifndef BOARD_INIT_DEBUG_CONSOLE_PERIPHERAL
+    /* Init FSL debug console. */
+    BOARD_InitDebugConsole();
+#endif
+
+    /* Enable GPIO clocks */
+    CLOCK_EnableClock(kCLOCK_Gpio0);
+    CLOCK_EnableClock(kCLOCK_Gpio1);
+    setup_pwm(&my_timer, 20000, 50);
+
+    /* Configure pins as output */
+    setoutput(0, 16);
+    setoutput(0, 18);
+    setoutput(0, 6);
+    setoutput(0, 19);
+    setoutput(0, 29);
+    setoutput(0, 30);
+    setoutput(1, 31);
+    wait(5000);
+    for (int i = 0; i<1000; i++)
+    {
+    update_pwm(&my_timer, 20000, 0.1*i);
+    wait(25);
+    }
+
+    /* Enter an infinite loop */
+    while(1) {
+        __asm volatile ("nop");
+    }
+    return 0;
+}
