@@ -1,0 +1,227 @@
+#include <stdio.h>
+#include <stdint.h>
+#include "fsl_gpio.h"
+#include "fsl_mrt.h"
+#include "clock_config.h"
+#include "fsl_ctimer.h"
+#include "fsl_i2c.h"          // NXP's I2C driver library
+#include "fsl_debug_console.h" // For PRINTF debugging
+
+typedef struct {
+	I2C_Type *base;
+	uint32_t baudrate;
+	uint32_t source_clock;
+} i2c_setup_t;
+typedef struct {
+	CTIMER_Type*timer;
+	ctimer_match_t match_channel;
+	ctimer_match_t match_out;
+	uint32_t clock_freq;
+} ctimer_setup_t;
+void wait(uint32_t ms)
+{
+    volatile uint32_t count;
+    for(uint32_t i=0; i < ms; i++)
+    {
+        count = 20000;
+        while(count--) {
+            __asm volatile ("nop");
+        }
+    }
+}
+
+void setpin(uint32_t directory, uint32_t pinnum, uint32_t state)
+{
+    if (state == 1) {
+        GPIO->SET[directory] = (1U << pinnum);
+    } else {
+        GPIO->CLR[directory] = (1U << pinnum);
+    }
+}
+void setoutput(uint32_t directory, uint32_t pinnum)
+{
+    GPIO->DIR[directory] |= (1U << pinnum);
+}
+
+
+ctimer_setup_t setup_timer(uint32_t i,uint32_t pin)
+{
+	ctimer_setup_t config;
+	ctimer_config_t hw_config;
+	uint32_t clockhz;
+
+	switch(i) {
+	case 0:
+		config.timer = CTIMER0;
+		break;
+	case 1:
+		config.timer = CTIMER1;
+		break;
+	case 2:
+		config.timer = CTIMER2;
+        CLOCK_AttachClk(kFRO_HF_to_CTIMER2);
+		break;
+	case 3:
+		config.timer = CTIMER3;
+		break;
+	case 4:
+		config.timer = CTIMER4;
+		break;
+	}
+	clockhz = 96000000;
+	switch(pin){
+	case(0):
+		config.match_out = kCTIMER_Match_0;
+		break;
+	case(1):
+		config.match_out = kCTIMER_Match_1;
+		break;
+	case(2):
+		config.match_out = kCTIMER_Match_2;
+		break;
+	case(3):
+		config.match_out = kCTIMER_Match_3;
+		break;
+	}
+
+    config.match_channel = kCTIMER_Match_0;
+    CTIMER_GetDefaultConfig(&hw_config);
+    config.clock_freq = clockhz / (hw_config.prescale + 1);
+    CTIMER_Init(config.timer, &hw_config);
+
+	return config;
+}
+void setup_pwm(ctimer_setup_t*timer_config, uint32_t pwm_freq_hz, uint8_t duty_cycle_percent)
+{
+	uint32_t pwm_period;
+	uint32_t pulse_period;
+
+	pwm_period = (timer_config->clock_freq / pwm_freq_hz) - 1;
+
+	if (duty_cycle_percent == 0) {
+		pulse_period = pwm_period +1;
+	} else {
+		pulse_period = (pwm_period * (100 - duty_cycle_percent))/100;
+	}
+	CTIMER_SetupPwmPeriod(timer_config->timer, kCTIMER_Match_3, timer_config->match_out, pwm_period, pulse_period, false);
+
+	CTIMER_StartTimer(timer_config->timer);
+}
+void update_pwm(ctimer_setup_t *timer_config, uint32_t pwm_freq_hz, uint8_t duty_cycle_percent)
+{
+    uint32_t pwm_period;
+    uint32_t pulse_period;
+
+    pwm_period = (timer_config->clock_freq / pwm_freq_hz) - 1;
+
+    if (duty_cycle_percent == 0) {
+        pulse_period = pwm_period + 1;
+    } else {
+        pulse_period = (pwm_period * (100 - duty_cycle_percent)) / 100;
+    }
+
+    // Just update the match register directly - NO StartTimer, NO SetupPwmPeriod
+    timer_config->timer->MR[timer_config->match_out] = pulse_period;
+}
+
+i2c_setup_t setup_i2c(uint32_t baudrate, uint32_t I2CNum)
+{
+	i2c_setup_t config;
+	i2c_master_config_t masterConfig;
+	switch(I2CNum) {
+		case 2:
+			config.base = I2C2;
+			CLOCK_AttachClk(kFRO12M_to_FLEXCOMM2);
+			break;
+		case 4:
+			config.base = I2C4;
+			CLOCK_AttachClk(kFRO12M_to_FLEXCOMM4);
+			break;
+	}
+	config.baudrate = baudrate;
+	config.source_clock = 12000000U;
+	I2C_MasterGetDefaultConfig(&masterConfig);
+	masterConfig.baudRate_Bps = baudrate;
+	I2C_MasterInit(config.base, &masterConfig, config.source_clock);
+	PRINTF("I2C Initialized");
+	return config;
+}
+uint8_t i2c_write(i2c_setup_t *i2c, uint8_t device_addr, uint8_t reg_addr, uint8_t *data, uint8_t length)
+
+{
+	i2c_master_transfer_t masterXfer;
+	status_t status;
+	uint8_t buffer[33];
+
+	buffer[0] = reg_addr;
+	for(uint8_t i = 0; i < length; i++){
+		buffer[i+1] = data[i];
+	}
+	masterXfer.slaveAddress = device_addr;
+
+	masterXfer.direction = kI2C_Write;
+
+	masterXfer.subaddress = 0;
+	masterXfer.subaddressSize=0;
+	masterXfer.data = buffer;
+	masterXfer.dataSize = length +1;
+	masterXfer.flags = kI2C_TransferDefaultFlag;
+	status = I2C_MasterTransferBlocking(i2c->base, &masterXfer);
+	if(status ==kStatus_Success) {
+		return 0;
+	} else {
+        PRINTF("I2C Write Error: Status = %d\r\n", status);
+        return 1;  // Transfer failed
+	}
+}
+uint8_t i2c_read(i2c_setup_t *i2c, uint8_t device_addr, uint8_t reg_addr, uint8_t *data, uint8_t length)
+{
+    i2c_master_transfer_t masterXfer;
+    status_t status;
+    masterXfer.slaveAddress = device_addr;
+    masterXfer.direction = kI2C_Write;
+    masterXfer.subaddress = 0;
+    masterXfer.subaddressSize = 0;
+    masterXfer.data = &reg_addr;                    // Just the register address
+    masterXfer.dataSize = 1;                        // One byte
+    masterXfer.flags = kI2C_TransferNoStopFlag;     // NO STOP - keep bus active
+    status = I2C_MasterTransferBlocking(i2c->base, &masterXfer);
+    if(status != kStatus_Success) {
+        PRINTF("I2C Read Error (Write Phase): %d\r\n", status);
+        return 1;
+    }
+    masterXfer.direction = kI2C_Read;               // Switch to read
+    masterXfer.data = data;                         // Where to store data
+    masterXfer.dataSize = length;                   // How many bytes to read
+    masterXfer.flags = kI2C_TransferDefaultFlag;    // Normal transfer with STOP
+    status = I2C_MasterTransferBlocking(i2c->base, &masterXfer);
+    if(status == kStatus_Success) {
+        return 0;
+    } else {
+        PRINTF("I2C Read Error (Read Phase): %d\r\n", status);
+        return 1;
+    }
+}
+void i2c_scan(i2c_setup_t *i2c)
+{
+    uint8_t addr;
+    i2c_master_transfer_t masterXfer;
+    status_t status;
+    uint8_t dummy;
+    PRINTF("\r\n=== I2C Bus Scan ===\r\n");
+    PRINTF("Scanning addresses 0x01 to 0x7F...\r\n\r\n");
+    for(addr = 1; addr < 127; addr++) {
+        masterXfer.slaveAddress = addr;
+        masterXfer.direction = kI2C_Read;
+        masterXfer.subaddress = 0;
+        masterXfer.subaddressSize = 0;
+        masterXfer.data = &dummy;
+        masterXfer.dataSize = 1;
+        masterXfer.flags = kI2C_TransferDefaultFlag;
+        status = I2C_MasterTransferBlocking(i2c->base, &masterXfer);
+        if(status == kStatus_Success) {
+            PRINTF("  Device found at address 0x%02X\r\n", addr);
+        }
+    }
+    PRINTF("\r\n=== Scan Complete ===\r\n\r\n");
+}
