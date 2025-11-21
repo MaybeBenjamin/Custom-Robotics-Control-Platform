@@ -2,6 +2,7 @@
 Personal Project created as a cost-effective, robust, and user-friendly electronics controller to increase hobbyist access to high-quality robotics systems
 
 <img width="331" height="311" alt="image" src="https://github.com/user-attachments/assets/d85fb4dd-17d9-4d74-bb8e-f28a4797a5a7" />
+
 Picture of Board With Completed Reflow (Version 1)
 
 # Hardware Summary
