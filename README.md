@@ -1,5 +1,6 @@
 # Custom-Robotics-Control-Platform
 Personal Project created as a cost-effective, robust, and user-friendly electronics controller to increase hobbyist access to high-quality robotics systems
+<img width="346" height="319" alt="image" src="https://github.com/user-attachments/assets/d813f105-977d-4864-a62e-5e8084543c7f" />
 
 # Hardware Summary
 This is a custom PCB I am designing for a new advanced robotics project. The goal is to
